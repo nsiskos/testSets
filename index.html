@@ -1,96 +1,427 @@
 <!DOCTYPE HTML>
-<html>
+<html lang="en">
 <head>
      <meta charset="UTF-8"> 
-     <title>sequences</title>
-     <link href="sequences.css" rel="stylesheet" type="text/css">
+     
+     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+     
+     <link rel="shortcut icon" type="image/x-icon" sizes="16x16" href="favicon.ico">
+     <link rel="shortcut icon" type="image/png" sizes="32x32" href="favicon32.png">
+     <link rel="apple-touch-icon" type="image/png" sizes="152x152" href="favicon152.png">
+
+     <meta name="viewport" content="width=device-width, initial-scale=1">
+     
+     <style>
+         .bubble_green {
+         	stroke: green;
+         	fill: none;
+         	opacity: 0.5;
+         	stroke-width: 2;
+         }
+         </style>
+     
+     <title>visualize megablast output</title>
 
      <script src="//d3js.org/d3.v3.min.js"></script>
      
      <script type="text/javascript">
          
-         var letters = new Array();
-         
-         function clearTable () {
-             document.getElementById("probeInfo").innerHTML = "";
-         }
-         
-         function testFunc() { 
+         class oneRead {
              
-             var mag = document.getElementById("magic_string").value.match(/\d+\D{1}/g);
-             var explainedSet = new Array();
-             
-             document.getElementById("probeInfo").innerHTML = "";
-
-             var chunk_adder = 0;
-             for (i=0;i<mag.length;i++) {
-                 
-                 var chunk_start = chunk_adder + 1;
-                 var chunk_name = mag[i]
-                 var capture_legth = chunk_name.match(/(\d+)/g);
-                 var chunk_legth = parseInt(capture_legth[0]);
-                 
-                 var chunk_end = chunk_adder + chunk_legth;
-                 
-                 var chunk_type = chunk_name.match(/\D/);
-                 letters.push(chunk_type);
-                 
-                 explainedSet[explainedSet.length] = [i, chunk_name, chunk_legth, chunk_type, chunk_start, chunk_end];
-                 chunk_adder = chunk_end;
+             constructor() {
+                 this.orientationAlert = "normal (plus/plus)";
              }
              
-             var tBody = d3.select("#probeInfo").selectAll("tr").data(explainedSet).enter().append("tr");
-             tBody.append("td").text(d => d[0]);
-             tBody.append("td").text(d => d[1]);
-             tBody.append("td").text(d => d[2]);
-             tBody.append("td").text(d => d[3]);
-             tBody.append("td").text(d => d[4]);
-             tBody.append("td").text(d => d[5]);
-         }
-         //testFunc()
+             letsgo(samInput) {
+                 
+                 this.startOnRefStrand = parseInt(samInput.match(/(?<=@SQ.+LN:)\d+(?=\n)/g)[0], 10);
 
+                 this.mandFields = samInput.match(/(?<=@PG.+\n)(.+)/g)[0].split('\t');
+                 this.cigarString = this.mandFields[5];
+                 this.segmentOrientationBit = parseInt(this.mandFields[1], 10);
+                 this.sequence = this.mandFields[9];
+                 this.leftPOS = parseInt(this.mandFields[3], 10);
+                 this.queryLength = this.sequence.length;
+                 this.totalLength = 0;
+                                 
+/*                 this.cigarString = samString.match(/(\d+[MIDNSHP=X]{1})/g);
+                 this.segmentOrientationBit = parseInt(samString.match(/(?<=\t)\d+(?=\tSubject)/g)[0], 10)
+  */               
+                 this.letters = new Array(); // store individual letters
+                 this.explainedSet = new Array(); // store the initial string
+                 this.narrowSet = new Array(); // store only the pieces that suit the selected letter
+                 this.newNarrowSet = new Array(); // same as previous, but array of objects
+                 
+                 this.explainYourCigar( (this.segmentOrientationBit == 16) ? false : true );
+                 
+             }
+             
+             explainYourCigar(normal_or_reverse) {
 
+                 this.segments = this.cigarString.match(/(\d+[MIDNSHP=X]{1})/g);
+
+                 this.explainedSet = [];
+
+                 var allLetters = new Array();
+                 allLetters.push("all");
+                 
+                 if (normal_or_reverse == false) {
+                     this.segments.reverse();
+                     this.orientationAlert = "reverse (plus/minus)";
+                 }
+                                  
+                 var chunk_adder = 0;
+                 
+                 for (var i=0;i<this.segments.length;i++) {
+                     var chunk_start = chunk_adder + 1;
+                     var chunk_name = this.segments[i]
+                     var chunk_length = parseInt(chunk_name.match(/(\d+)/g)[0], 10);
+                                        
+                     this.totalLength += chunk_length;
+                 
+                     var chunk_end = chunk_adder + chunk_length;
+                 
+                     var chunk_type = chunk_name.match(/\D/)[0];
+                     allLetters.push(chunk_type);
+              
+                     this.explainedSet.push({
+                         chunk_order: i,
+                         chunk_name: chunk_name,
+                         chunk_length: chunk_length,
+                         chunk_type: chunk_type,
+                         chunk_start: chunk_start,
+                         chunk_end: chunk_end,
+                         chunkRefStart: 0,
+                         chunkRefEnd: 0
+                     });
+
+                     chunk_adder = chunk_end;
+                     
+                 }
+                 this.letters = [...new Set(allLetters)];
+                 
+                 // the INEVITABLE
+                 var multiplier = 1;
+                 var refAdder = 0;
+                 if (normal_or_reverse == false) {
+                     refAdder += this.totalLength-1;
+                     multiplier = -1;
+                 }
+                 refAdder += this.leftPOS-(multiplier*1);
+
+                 for (var i=0; i<this.explainedSet.length;i++) {
+                     var chunkRefStart = refAdder + multiplier*1;
+
+                     var chunkRefEnd = refAdder + multiplier*this.explainedSet[i].chunk_length;
+
+                     this.explainedSet[i].chunkRefStart = chunkRefStart;
+                     this.explainedSet[i].chunkRefEnd = chunkRefEnd;
+                     refAdder = chunkRefEnd;
+                 }
+                 
+                 // OUTPUT
+/* ================================================================================================================================================================
+  */             
+                 // display orientation info
+                 
+                 document.getElementById("orientationAlert").innerHTML = this.orientationAlert;
+                   
+                 // display the big table with all chunks listed
+                 var tBody = d3.select("#probeInfo").selectAll("tr").data(this.explainedSet).enter().append("tr");
+                 tBody.append("td").text(d => d.chunk_order);
+                 tBody.append("td").text(d => d.chunk_name);
+                 tBody.append("td").text(d => d.chunk_length);
+                 tBody.append("td").text(d => d.chunk_type);
+                 tBody.append("td").text(d => d.chunk_start);
+                 tBody.append("td").text(d => d.chunk_end);
+                 tBody.append("td").text(d => d.chunkRefStart);
+                 tBody.append("td").text(d => d.chunkRefEnd);
+                 
+                 document.getElementById("firstTable").style.display = "block";
+                 
+                 
+                 // display data summary
+                 
+                 document.getElementById("dataSummary").style.display = "block";
+                 document.getElementById("totalSegmentsInfo").innerHTML = this.explainedSet.length;
+                 document.getElementById("totalLengthInfo").innerHTML = this.totalLength;
+                 
+                 var segmentsSummary = new Array();
+             
+                 for (var uniqLet of this.letters) {
+                 
+                     if (uniqLet == "all") {
+                         continue;
+                     }
+                 
+                     var tempSet = this.explainedSet.filter((d) => d.chunk_type == uniqLet);
+
+                     segmentsSummary.push({
+                         letter: uniqLet,
+                         instances: tempSet.length
+                     });
+                 }
+             
+                 d3.select("#segments_info").selectAll("tr").remove();
+                 var summaryTableInfo = d3.select("#segments_info").selectAll("tr").data(segmentsSummary).enter().append("tr");
+    /*             var summaryTableInfo = d3.select("#segments_info").selectAll("tr").data(segmentsSummary);
+                 summaryTableInfo.enter().append("tr").merge(summaryTableInfo);
+    */
+                 summaryTableInfo.append("td").text(d => d.letter);
+                 summaryTableInfo.append("td").text(d => d.instances);
+                      
+               // LETTER SELECTOR
+                 var letterSelector = d3.select("#letterSelector").selectAll("option").data(this.letters).enter().append("option").attr("value", (d => d)).text((d => d));
          
+
+
+                 document.getElementById("letterSelector").style.display = "block";
+                 
+             }
+             
+             filterByLetter(letter) {
+                 this.narrowSet = [];
+                 document.getElementById("narrowInfo").innerHTML = "";
+                 
+                 if (letter == "all") {
+                     document.getElementById("narrow_table").style.display = "none";
+                     return;
+                 }
+                 
+                 this.narrowSet = this.explainedSet.filter((d) => d.chunk_type == letter);
+                 
+                 this.newNarrowSet = [];
+                 
+                 this.newNarrowSet = [];
+             
+                 var chunk_adder = 0;
+                 for (var i=0; i<this.narrowSet.length; i++) {
+                     var chunk_start = chunk_adder + 1;
+                     var chunk_end = chunk_adder + this.narrowSet[i].chunk_length;
+                     this.newNarrowSet.push({
+                         newOrder: i,
+                         oldOrder: this.narrowSet[i].chunk_order,
+                         chunkName: this.narrowSet[i].chunk_name,
+                         chunkLength: this.narrowSet[i].chunk_length,
+                         chunkType: this.narrowSet[i].chunk_type,
+                         newStart: chunk_start,
+                         oldStart: this.narrowSet[i].chunk_start,
+                         newStop: chunk_end,
+                         oldStop: this.narrowSet[i].chunk_end,
+                         chunkRefStart: this.narrowSet[i].chunkRefStart,
+                         chunkRefEnd: this.narrowSet[i].chunkRefEnd
+                     });
+                     chunk_adder = chunk_end;
+                 }
+              
+                 document.getElementById("narrow_table").removeAttribute("style");
+             
+                 var narrowTableBody = d3.select("#narrowInfo").selectAll("tr").data(this.newNarrowSet).enter().append("tr");
+                 narrowTableBody.append("td").text(d => d.newOrder);
+                 narrowTableBody.append("td").text(d => d.oldOrder);
+                 narrowTableBody.append("td").text(d => d.chunkName);
+                 narrowTableBody.append("td").text(d => d.chunkLength);
+                 narrowTableBody.append("td").text(d => d.chunkType);
+                 narrowTableBody.append("td").text(d => d.newStart);
+                 narrowTableBody.append("td").text(d => d.newStop);
+                 narrowTableBody.append("td").text(d => d.oldStart);
+                 narrowTableBody.append("td").text(d => d.oldStop);
+                 narrowTableBody.append("td").text(d => d.chunkRefStart);
+                 narrowTableBody.append("td").text(d => d.chunkRefEnd);
+             }
+             
+             drawAttempt(elementId) {
+                 const paddingLeft = 10;
+                 const paddingRight = 5;
+             
+                 const width = parseInt(d3.select(elementId).style('width'), 10);
+                 const height = parseInt(d3.select(elementId).style('height'), 10);
+             
+                 const blanking = d3.select(elementId).html("");
+             
+                 const maxStart = d3.max(this.newNarrowSet, d => d.newStart);
+                 const maxEnd = d3.max(this.newNarrowSet, d => d.newStop);
+                 const maxlength = d3.max(this.newNarrowSet, d => d.chuckLength);
+                 console.log(width);
+                 console.log(height);
+             
+                 const plotArea = d3.select(elementId).append('svg').attr('width', width);
+                 plotArea.selectAll('rect').data(this.newNarrowSet).enter().append('rect').attr('y', 20).attr('x', (d) => (width*d.newStart/maxEnd)).attr('width', (d) => d.chunkLength*width/maxEnd-paddingRight).attr('height', 16).attr('class', 'bubble_green');
+             }
+           
+         }
+         
+         const testD = new oneRead();
+         
+         function loadExample () {
+             const example = `@HD	VN:1.0	GO:query
+@SQ	SN:NC_058377.1	LN:115366950
+@PG	ID:magicblast	PN:magicblast	CL:magicblast -query XM_023239672.fa -subject NC_058377.fa 
+XM_023239672.2	16	NC_058377.1	86007460	255	435M959N151M2606N116M94N151M211N83M532N159M5905N166M830N216M94N42M802N131M3763N61M366N77M	*	0	0	TTTCCTTTTTTTTTTTAAACAACTTCATGACCAACACAGATCAAACATCCATCCAGTCTACGTTGTTCTTTTTTTTTTCATAACATACAAATGCCCATTTACAAATAATACACCAAAATGAATAAAAGTTTGGATACCAAAATGAAGATTTGTTCCAACTGATAGCGTGCCTTCTGTATACAAAGGTCCTTGCTTCAAGTCCATTCCCCAGTGGTACAACACAGGACACAATTGCAGATCTGAAGTGCTTCTAACAGCCATTTTCCTTTCCTTCCTGAACGCCCAACTGCTGTGTCCACATAGTCACTGACTGAATTAACACCATATATCCTTTTTTTTTTTTTTTTTTTTACTGTAATCTTGGCCAATATTGAGACATATCAGGTTCACTTCCAGGAACTTGAACGGGAACTGACACACCAGGGGAAATGAGTCCTGTGGAAGTGGTGCCCGAGGTGCCCATTGGCTGACTGTTCATGTGTGTCTGCATATGTGGGGGGGTGTAGGTATCATAACTCCGCCCGTTCACCGAAGGGCTGGTGGGCAGCATGCAGGAGTACGAAGAGGTCTGGCTGGGGACTGGGGGTTGCATAGGCAGGTTATTCGCCATGGTGAAGCTGGGCATGGGTGGCAGAGCGCTGTACGTGTTTGTGAGGGCTGTGTCTGTCCGGCCCAACATGGAGCCAGAGGTGAAGGAGGAAACAGGCGTGGTGGGTTGTGGGATTGGCTGGTAGACACTGGTGCTGAAACTACTGCTGATGGGGATGTGACTAGGTGTGTTGCTGGCCTGTCTCCTCTGATTCCTCAGTTTTTCTTCTCTTCGCCATTTGGCCCTCCGATTAGAAAACCATACCTGTATTCTTGCTTCAGGTAGATCTATTTTGGCCGCTAGTCTTTCTCGGGCAAACACATCTGGATAATGGGTTCTCTCAAACTCTTTCTCCAGGGCCTCAATTTGCTCTTGGGTAAAGGATGTTCTATTTCTTTGCAGCTTCCGCTTCAGCTGAAGTCGCATTTGGGCCTCATCTGAATCTTCTCCATTGGAACTGATAGAGTTGGTATTCTCTCCCCCTCCTTCCTGTTGCTGGCAGCCATCTTGTGTAGGTTGCCCTGGCACAGAAGTCCCCGGATACCAACCGGGGCGGGTACCCCAGCTTCCGGTCTGCCCGTTCAACATCCTTAGTTTATCATACATGCCGTCTGCGCCCATCTGTTGCTTTTCGCTAGCCAGGTTGCGAAGAACTCTGTTTATTGATGACACACTTGGTATGTTATCGTTGGTACAGACCCCCTCGGACAATAATCTGTCTCGGATTTCCCAAGCAAAGATGGACGGGCACTCCCGCTTATACTGGGCTATTTTGCTTACAACTTCTGGAGTCGCTACTCTCGGTTTACTACCACCGATTGCCCTGGGTCTGATGGAGCCAGTCTCGTAATACCTGCCCAGAATTTTACTCACACATCCGTTGGACACGTTTTGATTGTCCAGCACTTGGACTTTTGCATCTGCATGGGTCTGCAGAATTCGGGAAATGTCGCACGGCCGGGCCCCGCTGTGAGCTAGCTCTACGATCTTCTGCCGGGTGGAGTCCGGCAGTGGCCGCCCGTTGACAAAGACACCACCGAGCTGATTCACTCCGCTGTGACTGTTCTGCATGCTGGCGCTGGCTGGGGGCCGCGGGATCCCACGGGGCTCGAAAATGGGGCTCTGAAATCTGGGAAGTCTGTCCACTCTTACAATAAAAGGTCTCACACATCTGCGCGCCCCTAGTTAAAGTCTTCCCC	*	NH:i:1	AS:i:1788	NM:i:0	XS:A:-`;
+            
+            document.getElementById("magic_string").innerHTML = example;
+
+         }
+     
+                           
+         function clearTable () {
+             explainedSet = [];
+             letters = [];
+             narrowSet = [];
+             
+             document.getElementById("probeInfo").innerHTML = "";
+             document.getElementById("dataSummary").style.display = "none";
+             document.getElementById("letterSelector").innerHTML = "";
+             document.getElementById("firstTable").style.display = "none";
+             document.getElementById("letterSelector").style.display = "none";
+             document.getElementById("narrow_table").style.display = "none";
+             document.getElementById("seg_graph").innerHTML = "";
+         }
          
      </script>
      
 </head>
 <body>
-<div class="container">
-<div class="into">
+    
+<div class="container-fluid">
+    
+    <h1>visualize megablast output</h1>
+    
+    <div class="row pb-3">
+        <div class="col-12">
+            <p>Paste here magicblast sam output:</p>
+            <textarea name="magic_string" id="magic_string" class="form-control" rows=10></textarea>
+        </div>
+        
+    </div>
 
-<div class="bind"></div>
+    <div class="row pb-3">
+        <div class="col-sm-6">
+            <!--button type="button" class="btn btn-outline-primary" onclick="readString();">Read Str</button-->
+            <button type="button" class="btn btn-outline-primary" onclick="testD.letsgo(document.getElementById('magic_string').value);">Read Str</button>
+            
+            <button type="button" class="btn btn-outline-secondary" onclick="loadExample();">Load example</button>  
+            <button type="button" class="btn btn-outline-danger" onclick="clearTable();">Clear all</button>
+        </div>
+        
+    </div>
 
-<div class="facultyid">
-<h2>spligner output</h2></div>
+    
+    <div class="row pb-3">
+        <!--div class="col-sm-6 table-responsive" id="firstTable"-->
+        <div class="col-sm-6 table-responsive" id="firstTable" style="display:none">
+            <table class="table table-hover table-bordered">
+                <thead class="table-light">
+                    <tr>
+                        <th>order</th>
+                        <th>chunk</th>
+                        <th>length</th>
+                        <th>type</th>
+                        <th>start</th>
+                        <th>stop</th>
+                        <th>Subject start</th>
+                        <th>Subject stop</th>
+                    </tr>
+                </thead>
+                <tbody id="probeInfo"></tbody>
+            </table>
+        </div>
+        <div class="col-sm-6" id="dataSummary" style="display:none;">
+            <div class="row">
+                <div class="col-sm-3">
+                    <h5>Data summary</h5>
+                    <p>
+                        Orientation: <span id="orientationAlert"></span><br />
+                        Total segments: <span id="totalSegmentsInfo"></span><br />
+                        Total length: <span id="totalLengthInfo"></span><br />
+                    </p>
+                </div>
+                <div class="col-sm-3 table-responsive">
+                    <table class="table table-hover table-bordered">
+                        <thead class="table-active">
+                            <tr>
+                                <th>segm.</th>
+                                <th>n.</th>
+                            </tr>
+                        </thead>
+                        <tbody id="segments_info"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-6 table-responsive">
+                    <table class="table table-striped table-sm" id="CIGAR_cheat_sheet">
+                        <thead><tr>
+                            <th>Op</th><th>BAM</th><th>Description</th>
+                        </tr></thead>
+                        <tbody>
+                            <tr><td>M</td><td>0</td><td>alignment match</td></tr>
+                            <tr><td>I</td><td>1</td><td>insertion to the reference</td></tr>
+                            <tr><td>D</td><td>2</td><td>deletion from the reference</td></tr>
+                            <tr><td>N</td><td>3</td><td>skipped region from the reference</td></tr>
+                            <tr><td>S</td><td>4</td><td>soft clipping</td></tr>
+                            <tr><td>H</td><td>5</td><td>hard clipping</td></tr>
+                            <tr><td>P</td><td>6</td><td>padding</td></tr>
+                            <tr><td>=</td><td>7</td><td>sequence match</td></tr>
+                            <tr><td>X</td><td>8</td><td>sequence mismatch</td></tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+     
 
-<div class="bind"></div>
+        
+    </div>
+
+    <div class="row pb-3">
+        <div class="col-sm-1 pb-3">
+            <select name="selectedLetter" id="letterSelector" class="form-select" style="display:none;" onChange="testD.filterByLetter(this.options[this.selectedIndex].value);">
+            </select>
+        </div>
+    </div>
+    
+    <div class="row pb-3">
+        <div class="col-sm-6 table-responsive pb-3" id="narrow_table" style="display:none;">
+            <table class="table table-hover table-bordered">
+                <thead class="table-active"><tr>
+                    <th>new order</th>
+                    <th>old order</th>
+                    <th>chunk name</th>
+                    <th>length</th>
+                    <th>type</th>
+                    <th>new start</th>
+                    <th>new stop</th>
+                    <th>old start</th>
+                    <th>old stop</th>
+                    <th>Subject start</th>
+                    <th>Subject stop</th>
+                </tr></thead>
+                <tbody id="narrowInfo"></tbody>
+            </table>
+            
+            <button type="button" class="btn btn-outline-success" onclick="testD.drawAttempt('#seg_graph');">draw</button>
+            
+        </div>
+        
+        
+    </div>
+    <div class="row pb-3">
+        <div class="col-12">
+            
+            <div id="seg_graph"></div>
+            
+        </div>
+    </div>
 
 
-<div class="text">
     
 
-        <p>
-        <textarea name="magic_string" id="magic_string"></textarea>
-        </p>
-        <button type="button" class="button" onclick="testFunc();">Go</button> &nbsp; <button type="button" class="button" onclick="clearTable();">Clear</button>
-
-
 </div>
 
-<div class="text" id="output_table">
-    <table class="massive_table">
-        <thead><tr><th>order</th><th>chunk</th><th>length</th><th>type</th><th>start</th><th>stop</th></tr></thead>
-        <tbody id="probeInfo"></tbody>
-    </table>
-</div>
-
-<div id="footer">
-
-<p>developed by <a href="http://orcid.org/0000-0001-9301-314X">NS</a> using JS... </p>
-</div>
-
-</div>
-</div>
+<script>
+    window.addEventListener('resize', () => testD.drawAttempt('#seg_graph'));
+</script>
 
 </body></html>
