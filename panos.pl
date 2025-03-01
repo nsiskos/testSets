@@ -11,3 +11,5 @@ while (<STDIN>) {
 #    }
     
 }
+
+# cat panos.fa | sed 's/|.*//'
